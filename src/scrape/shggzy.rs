@@ -7,14 +7,15 @@
 use crate::JobEntry;
 use colored::Colorize;
 use std::error::Error;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use thirtyfour::{
     prelude::{ElementWaitable, WebDriverError},
     By, WebDriver, WebElement,
 };
 use url::Url;
 
-#[derive(Debug, serde::Serialize, Default)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct BidInfo {
     // 项目编号
     pub project_id: String,
@@ -39,7 +40,7 @@ pub async fn scrape(driver: &WebDriver) -> Result<(), Box<dyn Error>> {
     println!("{}, saving to {save_to}", "Scraping shggzy".yellow().bold(),);
 
     let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-31&timeEnd=2025-7-31%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
-    let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-30&timeEnd=2025-7-30%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
+    // let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-30&timeEnd=2025-7-30%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
 
     let url_tmp = Url::parse(url)?;
     driver.goto(url_tmp).await?;
@@ -49,6 +50,8 @@ pub async fn scrape(driver: &WebDriver) -> Result<(), Box<dyn Error>> {
     let mut wtr = csv::Writer::from_path(save_to)?;
 
     println!("Writing to {}", "shggzy.csv".yellow().bold());
+
+    let mut entries: Vec<BidInfo> = Vec::new();
 
     let mut i = 1;
     loop {
@@ -63,14 +66,23 @@ pub async fn scrape(driver: &WebDriver) -> Result<(), Box<dyn Error>> {
             i += 1;
         }
         super::short_pause();
+
         super::swith_to_tab(driver, 1).await?;
         super::wait_until_loaded(driver).await?;
-        scrape_bid_info(driver).await?;
+        entries.push(scrape_bid_info(driver).await?);
+
         super::medium_pause();
         driver.close_window().await?;
         super::swith_to_tab(driver, 0).await?;
         super::short_pause();
     }
+    // save the entries as json
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open("shggzy_bid_info.json")?;
+    let json_data = serde_json::to_string_pretty(&entries)?;
+    write!(file, "{}", json_data)?;
 
     // let all_entry = get_all_entry(driver).await?;
     // println!("Found {} entries", all_entry.len());
