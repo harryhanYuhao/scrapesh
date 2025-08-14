@@ -6,6 +6,7 @@
 
 use crate::JobEntry;
 use colored::Colorize;
+use csv::Writer;
 use std::error::Error;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -13,6 +14,8 @@ use thirtyfour::{
     prelude::{ElementWaitable, WebDriverError},
     By, WebDriver, WebElement,
 };
+// TODO: remove this dependency, use char
+use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
@@ -35,11 +38,30 @@ pub struct BidInfo {
     pub publication_url: String,
 }
 
-pub async fn scrape(driver: &WebDriver) -> Result<(), Box<dyn Error>> {
-    let save_to = format!("{}shggzy.csv", crate::CONFIG.lock().unwrap().raw_data_dir);
+pub async fn read_bid_info_json_save_csv(
+    read_from: &str,
+    save_to: &str,
+) -> Result<(), Box<dyn Error>> {
+    let data = fs::read_to_string(read_from)?;
+    let entries: Vec<BidInfo> = serde_json::from_str(&data)?;
+    println!("Read {} entries from shggzy_bid_info.json", entries.len());
+
+    let mut wtr = Writer::from_path(save_to)?;
+    for i in entries.iter() {
+        // write each entry to csv
+        wtr.serialize(i)?;
+    }
+    println!(
+        "{}",
+        format!("Saved {} entries to {}", entries.len(), save_to).green(),
+    );
+    Ok(())
+}
+
+pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Error>> {
     println!("{}, saving to {save_to}", "Scraping shggzy".yellow().bold(),);
 
-    let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-31&timeEnd=2025-7-31%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
+    let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-31&timeEnd=2025-8-6%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
     // let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-30&timeEnd=2025-7-30%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
 
     let url_tmp = Url::parse(url)?;
@@ -47,11 +69,7 @@ pub async fn scrape(driver: &WebDriver) -> Result<(), Box<dyn Error>> {
     println!("{} at {}", "Scraping shggzy job".yellow().bold(), url);
     super::short_pause();
 
-    let mut wtr = csv::Writer::from_path(save_to)?;
-
-    println!("Writing to {}", "shggzy.csv".yellow().bold());
-
-    let mut entries: Vec<BidInfo> = Vec::new();
+    let mut ret: Vec<BidInfo> = Vec::new();
 
     let mut i = 1;
     loop {
@@ -65,11 +83,18 @@ pub async fn scrape(driver: &WebDriver) -> Result<(), Box<dyn Error>> {
         } else {
             i += 1;
         }
+
+        // WARNING: FOR DEBUG
+        // if i == 3 {
+        //     break;
+        // }
+        
         super::short_pause();
 
         super::swith_to_tab(driver, 1).await?;
         super::wait_until_loaded(driver).await?;
-        entries.push(scrape_bid_info(driver).await?);
+
+        ret.push(scrape_bid_info(driver).await?);
 
         super::medium_pause();
         driver.close_window().await?;
@@ -77,20 +102,15 @@ pub async fn scrape(driver: &WebDriver) -> Result<(), Box<dyn Error>> {
         super::short_pause();
     }
     // save the entries as json
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .open("shggzy_bid_info.json")?;
-    let json_data = serde_json::to_string_pretty(&entries)?;
+    let mut file = OpenOptions::new().write(true).create(true).open(save_to)?;
+    let json_data = serde_json::to_string_pretty(&ret)?;
     write!(file, "{}", json_data)?;
 
-    // let all_entry = get_all_entry(driver).await?;
-    // println!("Found {} entries", all_entry.len());
-    // for entry in all_entry {
-    //     let mut tmp = job_entry_from_element(&entry).await?;
-    //     tmp.company_name = "Airbnb".to_string();
-    //     wtr.serialize(tmp)?;
-    // }
+    println!(
+        "{}",
+        format!("Saved {} entries to {}", ret.len(), save_to).green(),
+    );
+
     Ok(())
 }
 
@@ -122,6 +142,11 @@ async fn click_next_page(driver: &WebDriver) -> Result<bool, Box<dyn Error>> {
     return Ok(false);
 }
 
+fn first_half_unicode(s: &str) -> String {
+    let graphemes: Vec<&str> = s.graphemes(true).collect();
+    graphemes[..graphemes.len() / 2].concat()
+}
+
 // for serializing to csv
 async fn scrape_bid_info(driver: &WebDriver) -> Result<BidInfo, WebDriverError> {
     let mut project_id = driver
@@ -141,6 +166,23 @@ async fn scrape_bid_info(driver: &WebDriver) -> Result<BidInfo, WebDriverError> 
         .await?
         .trim()
         .to_string();
+
+    // This field looks like
+    // 发布时间：2025-07-31     信息来源：上海市财政局云平台    浏览次数：130
+    // we only date the first 16 characters
+    let recorded_date = driver
+        .find(By::XPath("/html/body/div[6]/div[3]/p"))
+        .await?
+        .text()
+        .await?
+        .trim()
+        .to_string();
+
+    let characters: Vec<char> = recorded_date.chars().collect();
+    let mut recorded_date : String =characters[..16].iter().collect();
+
+    recorded_date = recorded_date.trim().to_string();
+    recorded_date.retain(|c| c.is_digit(10) || c == '-');
 
     let mut price = driver
         .find(By::XPath(
@@ -192,6 +234,7 @@ async fn scrape_bid_info(driver: &WebDriver) -> Result<BidInfo, WebDriverError> 
     let ret = BidInfo {
         project_id,
         project_name,
+        recorded_date,
         price,
         company_name,
         company_address,

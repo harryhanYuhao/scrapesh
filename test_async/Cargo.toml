@@ -1,11 +1,10 @@
 [package]
-name = "hypochlorite"
+name = "test_async"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+hypochlorite = { path ="../"}
 tokio = { version = "1.32.0", features = ["full"] }
 url = "2.4.1"
 reqwest = "0.11.22"
@@ -18,10 +17,4 @@ rand = "0.8.5"
 csv = "1.3.0"
 lazy_static = "1.4.0"
 unicode-segmentation = "1.12.0"
-log = "0.4.27"
-simplelog = "0.12.2"
-chrono = "0.4.41"
 
-[workspace]
-resolvers = "3"
-members = ["test_async"]

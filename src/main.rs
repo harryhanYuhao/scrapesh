@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate log;
+
 mod scrape;
 mod web_driver;
 use colored::Colorize;
@@ -19,8 +22,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _kill_guard = web_driver::KillChildGuard;
     let driver = web_driver::initialize_driver(web_driver::UseCustomDriver::No).await?;
 
-    scrape::short_pause();
-    scrape::shggzy::scrape(&driver).await?;
+    // scrape::short_pause();
+    // scrape::shggzy::scrape(&driver, "shggzy.json").await?;
+    info!("aaa");
+    // scrape::shggzy::read_bid_info_json_save_csv("shggzy_bid_info_copy.json", "july-30.csv").await?;
+
     driver.quit().await?;
     Ok(())
 }

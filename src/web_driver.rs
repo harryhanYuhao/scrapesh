@@ -7,6 +7,8 @@ use thirtyfour::{
 
 use colored::Colorize;
 use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
 
 static CHILD: Mutex<Option<Child>> = Mutex::new(None);
 
