@@ -20,23 +20,6 @@ use thirtyfour::{
 
 use simplelog::{ColorChoice, CombinedLogger, LevelFilter, TermLogger, TerminalMode, WriteLogger};
 
-#[derive(Debug, Serialize, Default)]
-pub struct JobEntry {
-    // company_name: String,
-    pub company_name: String,
-    pub job_title: String,
-    pub apply_link: String,
-    pub job_type_time: String,
-    pub is_rolling: bool,
-    pub location: String,
-    pub ddl: String,
-    pub start_time: String,
-    pub duration: String,
-    pub salary: String,
-    pub description: String,
-    pub keyworkds: String,
-}
-
 #[derive(Debug, Serialize)]
 pub struct Config {
     pub raw_data_dir: String,
@@ -100,6 +83,12 @@ pub fn init() -> Result<(), Box<dyn Error>> {
             LevelFilter::Info,
             simplelog::Config::default(),
             fs::File::create(&format!("{}/{}", log_dir, log_file_name)).unwrap(),
+        ),
+        TermLogger::new(
+            LevelFilter::Debug,
+            simplelog::Config::default(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
         ),
     ])
     .unwrap();

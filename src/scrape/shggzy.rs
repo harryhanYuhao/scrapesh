@@ -4,7 +4,7 @@
 //! For all jobs, see  (they are not scraped)
 //! "https://careers.airbnb.com/positions/"
 
-use crate::JobEntry;
+use log::*;
 use colored::Colorize;
 use csv::Writer;
 use std::error::Error;
@@ -131,7 +131,7 @@ async fn click_next_page(driver: &WebDriver) -> Result<bool, Box<dyn Error>> {
             .expect("No class attribute found!");
 
         if attribute.contains("disabled") {
-            println!("Next page button is disabled; no more pages to scrape");
+            debug!("Next page button is disabled; no more pages to scrape");
             return Ok(false);
         }
 

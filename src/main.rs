@@ -4,7 +4,6 @@ extern crate log;
 mod scrape;
 mod web_driver;
 use colored::Colorize;
-use hypochlorite::JobEntry;
 use hypochlorite::CONFIG;
 use serde::Serialize;
 use std::error::Error;

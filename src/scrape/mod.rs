@@ -8,6 +8,7 @@ use thirtyfour::{
     prelude::{ElementWaitable, WebDriverError},
     By, DesiredCapabilities, WebDriver, WebElement,
 };
+use std::io::Write;
 use url::Url;
 
 pub async fn raw_scrape(url: &str) -> Result<String, Box<dyn Error>> {
@@ -49,6 +50,20 @@ pub fn short_pause() {
     ));
 }
 
+pub async fn scroll_down(driver: &WebDriver) -> Result<(), WebDriverError> {
+    driver
+        .execute(
+            r#"window.scrollBy({
+  top: 200,
+  left: 0,
+  behavior: "smooth",
+});"#,
+            vec![],
+        )
+        .await?;
+    Ok(())
+}
+
 pub async fn scroll_to_bottom(driver: &WebDriver) -> Result<(), WebDriverError> {
     driver
         .execute(
@@ -79,7 +94,7 @@ pub async fn scroll_into_view(
 pub async fn swith_to_tab(driver: &WebDriver, num: usize) -> Result<(), WebDriverError> {
     let handles = driver.windows().await?;
     driver.switch_to_window(handles[num].clone()).await?;
-    
+
     Ok(())
 }
 
@@ -90,6 +105,14 @@ pub async fn wait_until_loaded(driver: &WebDriver) -> Result<(), Box<dyn Error>>
         .wait_until()
         .displayed()
         .await?;
+
+    Ok(())
+}
+
+pub async fn save_page(driver: &WebDriver) -> Result<(), Box<dyn Error>> {
+    let page_source = driver.source().await?;
+    let mut file = std::fs::File::create("page.html")?;
+    file.write_all(page_source.as_bytes())?;
 
     Ok(())
 }

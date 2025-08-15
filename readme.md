@@ -13,3 +13,4 @@ Check your chrome version with `google-chrome --version` and download the corres
 See [doc](doc/readme.md)
 
 The scraped data are stored in `data` folder.
+The logs are stored in `log` folder.

@@ -1,4 +1,9 @@
 /target
 *.csv
 chromedriver*
+*.txt
+*.json
+*.csv
+log/*
+*.html
 

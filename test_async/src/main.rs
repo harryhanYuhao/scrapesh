@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate log;
+
 use colored::Colorize;
 use hypochlorite::JobEntry;
 use hypochlorite::CONFIG;
@@ -11,10 +14,11 @@ use hypochlorite::{
 use serde::Serialize;
 use std::error::Error;
 use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::sync::Mutex;
 use thirtyfour::{
     prelude::{ElementWaitable, WebDriverError},
-    By, DesiredCapabilities, WebDriver, WebElement,
+    By, DesiredCapabilities, Key, WebDriver, WebElement,
 };
 use url::Url;
 
@@ -26,7 +30,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _kill_guard = web_driver::KillChildGuard;
     let driver = web_driver::initialize_driver(web_driver::UseCustomDriver::No).await?;
 
-    scrape::short_pause();
+    scrape::medium_pause();
+
     scrape(&driver, "shggzy.json").await?;
     // scrape::shggzy::read_bid_info_json_save_csv("shggzy_bid_info_copy.json", "july-30.csv").await?;
 
@@ -41,13 +46,39 @@ pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Err
 
     let url = "http://localhost:3000";
 
+    // let url = "https://www.shggzy.com/search/queryContents_11.jhtml?title=&channelId=38&origin=&inDates=30&ext=&timeBegin=2025-07-07&timeEnd=2025-8-7%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
+
     let url_tmp = Url::parse(url)?;
     driver.goto(url_tmp).await?;
-    println!("{} at {}", "Scraping shggzy job".yellow().bold(), url);
+    debug!("{} at {}", "Scraping shggzy job", url);
     scrape::short_pause();
 
-    let mut ret: Vec<BidInfo> = Vec::new();
+    loop {
+        println!("{}", "Waiting for the page to load...".yellow().bold(),);
+        match driver
+            .find(By::XPath("/html/body/div[6]/div[3]/div[1]/div[2]/h4"))
+            .await
+        {
+            Ok(_) => {
+                debug!("{}", "Page loaded successfully");
+                break;
+            }
+            Err(_) => {
+                debug!("Page not loaded yet, retrying...");
+            }
+        }
+        scrape::medium_pause();
+    }
 
+    scrape::short_pause();
+
+    // TEST:
+    // let body = driver.find(By::Tag("body")).await?;
+    // body.send_keys(Key::Control + "s").await?;
+    // scrape::long_pause();
+    scrape::scroll_to_bottom(&driver).await?;
+
+    let mut ret: Vec<BidInfo> = Vec::new();
     scrape::short_pause();
 
     // scrape::swith_to_tab(driver, 1).await?;
