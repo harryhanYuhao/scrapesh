@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::process::{Child, Command};
+use log::*;
 use thirtyfour::{
     prelude::{ElementWaitable, WebDriverError},
     By, DesiredCapabilities, WebDriver, WebElement,
@@ -12,6 +13,8 @@ static CHILD: Mutex<Option<Child>> = Mutex::new(None);
 
 pub struct KillChildGuard;
 
+// For automatically killing the child process
+// need to be initialised in main function.
 impl Drop for KillChildGuard {
     fn drop(&mut self) {
         let child = CHILD.lock().unwrap().take();
@@ -24,9 +27,9 @@ impl Drop for KillChildGuard {
 
 fn run_chrome_driver() {
     if std::path::Path::new("chromedriver").exists() {
-        println!("ChromeDriver already exists!");
-        println!("Running ChromeDriver ... ");
+        debug!("Chromdriver found! Running it now  ...");
         let child = Command::new("./chromedriver")
+            .arg("--port=9515")
             .spawn()
             .expect("Failed To Run Chromedriver");
         *CHILD.lock().unwrap() = Some(child);
@@ -40,36 +43,34 @@ fn run_chrome_driver() {
     }
 }
 
-pub enum UseCustomDriver {
-    Yes,
-    No,
+pub enum DriverType {
+    Custom,
+    Default,
 }
 
 /// Initialize and run the driver
 /// This function shall only be called once
-pub async fn initialize_driver(
-    use_custom_driver: UseCustomDriver,
+pub async fn init_driver(
+    use_custom_driver: DriverType,
 ) -> Result<WebDriver, Box<dyn Error>> {
     static HAS_RUN: Mutex<Option<bool>> = Mutex::new(Some(false));
     let mut has_run = HAS_RUN.lock().unwrap();
     {
         if *has_run.as_ref().unwrap() {
-            println!("Already Run!!!");
-            return Err("Bad!".into());
+            panic!("initialize_driver() Already Run! This function shall only be called once. This is likely internal bug.");
         }
     }
     *has_run = Some(true);
 
     match use_custom_driver {
-        UseCustomDriver::Yes => {
+        DriverType::Custom => {
             println!("Using Custom Chrome Driver");
         }
-        UseCustomDriver::No => {
+        DriverType::Default => {
             println!("Using Default Chrome Driver: Booting up Driver");
-            // TODO: add automatic run chromedriver feature
-            // run_chrome_driver();
+            run_chrome_driver();
             // Wait for the driver to boot up
-            // crate::scrape::short_pause();
+            crate::scrape::medium_pause();
         }
     }
 

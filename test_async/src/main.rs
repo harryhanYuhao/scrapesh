@@ -2,7 +2,6 @@
 extern crate log;
 
 use colored::Colorize;
-use hypochlorite::JobEntry;
 use hypochlorite::CONFIG;
 use hypochlorite::{
     scrape::{
@@ -12,6 +11,7 @@ use hypochlorite::{
     web_driver,
 };
 use serde::Serialize;
+use thirtyfour::prelude::ElementQueryable;
 use std::error::Error;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // killguard has custom drop traits that kill the subprocess
     // It has to be declared here: no easy alternative
     let _kill_guard = web_driver::KillChildGuard;
-    let driver = web_driver::initialize_driver(web_driver::UseCustomDriver::No).await?;
+    let driver = web_driver::init_driver(web_driver::DriverType::Default).await?;
 
     scrape::medium_pause();
 
@@ -101,6 +101,15 @@ pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Err
 }
 
 async fn scrape_bid_info(driver: &WebDriver) -> Result<BidInfo, WebDriverError> {
+
+    let mut table = driver
+        .query(By::Tag("tbody"))
+        .first()
+        .await?;
+    println!("Table found: {:?}", table);
+
+    return Ok(BidInfo::default());
+
     let mut project_id = driver
         .find(By::XPath("/html/body/div[6]/div[3]/div[1]/div[2]/h4"))
         .await?

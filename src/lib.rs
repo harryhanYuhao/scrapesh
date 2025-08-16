@@ -73,12 +73,6 @@ pub fn init() -> Result<(), Box<dyn Error>> {
     }
 
     CombinedLogger::init(vec![
-        TermLogger::new(
-            LevelFilter::Warn,
-            simplelog::Config::default(),
-            TerminalMode::Mixed,
-            ColorChoice::Auto,
-        ),
         WriteLogger::new(
             LevelFilter::Info,
             simplelog::Config::default(),

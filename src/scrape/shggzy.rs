@@ -4,16 +4,17 @@
 //! For all jobs, see  (they are not scraped)
 //! "https://careers.airbnb.com/positions/"
 
-use log::*;
 use colored::Colorize;
 use csv::Writer;
+use log::*;
 use std::error::Error;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use thirtyfour::{
-    prelude::{ElementWaitable, WebDriverError},
+    prelude::{ElementQueryable, ElementWaitable, WebDriverError},
     By, WebDriver, WebElement,
 };
+
 // TODO: remove this dependency, use char
 use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
@@ -38,6 +39,23 @@ pub struct BidInfo {
     pub publication_url: String,
 }
 
+// pub struct
+
+impl BidInfo {
+    pub fn default() -> Self {
+        BidInfo {
+            project_id: String::new(),
+            project_name: String::new(),
+            recorded_date: String::new(),
+            price: String::new(),
+            company_name: String::new(),
+            company_address: String::new(),
+            buyer: String::new(),
+            publication_url: String::new(),
+        }
+    }
+}
+
 pub async fn read_bid_info_json_save_csv(
     read_from: &str,
     save_to: &str,
@@ -59,17 +77,19 @@ pub async fn read_bid_info_json_save_csv(
 }
 
 pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Error>> {
-    println!("{}, saving to {save_to}", "Scraping shggzy".yellow().bold(),);
+    info!("{}, saving to {save_to}", "Scraping shggzy".yellow().bold(),);
 
     let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-31&timeEnd=2025-8-6%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
     // let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-30&timeEnd=2025-7-30%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
+
+    let url = "http://localhost:3000";
 
     let url_tmp = Url::parse(url)?;
     driver.goto(url_tmp).await?;
     println!("{} at {}", "Scraping shggzy job".yellow().bold(), url);
     super::short_pause();
 
-    let mut ret: Vec<BidInfo> = Vec::new();
+    let mut scraped_data: Vec<BidInfo> = Vec::new();
 
     let mut i = 1;
     loop {
@@ -88,29 +108,49 @@ pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Err
         // if i == 3 {
         //     break;
         // }
-        
+
         super::short_pause();
 
         super::swith_to_tab(driver, 1).await?;
         super::wait_until_loaded(driver).await?;
 
-        ret.push(scrape_bid_info(driver).await?);
+        scraped_data.push(scrape_bid_info(driver).await?);
 
         super::medium_pause();
         driver.close_window().await?;
         super::swith_to_tab(driver, 0).await?;
         super::short_pause();
     }
+
+    save_bid_info(&scraped_data, save_to).await?;
+
+    Ok(())
+}
+
+// save to json and csv
+async fn save_bid_info(scraped_data: &[BidInfo], save_to: &str) -> Result<(), Box<dyn Error>> {
     // save the entries as json
-    let mut file = OpenOptions::new().write(true).create(true).open(save_to)?;
-    let json_data = serde_json::to_string_pretty(&ret)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open(&format!("{},json", save_to))?;
+    let json_data = serde_json::to_string_pretty(&scraped_data)?;
     write!(file, "{}", json_data)?;
 
-    println!(
+    info!(
         "{}",
-        format!("Saved {} entries to {}", ret.len(), save_to).green(),
+        format!("Saved {} entries to {}", scraped_data.len(), save_to).green(),
     );
 
+    let mut wtr = Writer::from_path(&format!("{}.csv", save_to))?;
+    for i in scraped_data.iter() {
+        // write each entry to csv
+        wtr.serialize(i)?;
+    }
+    info!(
+        "{}",
+        format!("Saved {} entries to {}", scraped_data.len(), save_to),
+    );
     Ok(())
 }
 
@@ -149,6 +189,11 @@ fn first_half_unicode(s: &str) -> String {
 
 // for serializing to csv
 async fn scrape_bid_info(driver: &WebDriver) -> Result<BidInfo, WebDriverError> {
+    let mut table = driver.query(By::Tag("tbody")).first().await?;
+    println!("Table found: {:?}", table);
+
+    return Ok(BidInfo::default());
+
     let mut project_id = driver
         .find(By::XPath("/html/body/div[6]/div[3]/div[1]/div[2]/h4"))
         .await?
@@ -179,7 +224,7 @@ async fn scrape_bid_info(driver: &WebDriver) -> Result<BidInfo, WebDriverError> 
         .to_string();
 
     let characters: Vec<char> = recorded_date.chars().collect();
-    let mut recorded_date : String =characters[..16].iter().collect();
+    let mut recorded_date: String = characters[..16].iter().collect();
 
     recorded_date = recorded_date.trim().to_string();
     recorded_date.retain(|c| c.is_digit(10) || c == '-');
