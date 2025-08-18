@@ -19,6 +19,7 @@ use thirtyfour::{
 use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
 
+// total 8 fields
 #[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct BidInfo {
     // 项目编号
@@ -47,30 +48,6 @@ pub struct BidInfo {
     pub publication_url: String,
 }
 
-//  A true value means the field is obtained
-//  A field with true value denotes the required info is scraped
-//  The default for bool is false
-//  Default can be used as
-//  let mut bid_info_scraped = Default::default();
-#[derive(Debug, Default)]
-struct ScrapeTracker {
-    pub project_id: bool,
-    pub project_name: bool,
-
-    // 存证日期
-    // todo: change to Date type
-    pub recorded_date: bool,
-    pub company_name: bool,
-    pub company_address: bool,
-    // unit: CNY
-    pub price: bool,
-
-    // 采购人信息
-    pub buyer: bool,
-
-    pub publication_url: bool,
-}
-
 /// Holding errors info that shall be logged
 /// all logging shall take place when the entries is recorded to csv
 #[derive(Debug)]
@@ -86,7 +63,7 @@ pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Err
     let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-31&timeEnd=2025-8-6%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
     // let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-30&timeEnd=2025-7-30%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
 
-    let url = "http://localhost:3001";
+    // let url = "http://localhost:3000";
 
     let url_tmp = Url::parse(url)?;
     driver.goto(url_tmp).await?;
@@ -95,18 +72,16 @@ pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Err
 
     let mut scraped_data: Vec<BidInfo> = Vec::new();
     let mut log_info: ScrapeLogInfo = ScrapeLogInfo {
-        row: 0,
+        row: 1,
         url: url.into(),
     };
-    let mut scrape_tracker = ScrapeTracker::default();
-
-    // DEBUG:
-    scrape_bid_info(driver, &mut scrape_tracker, &mut log_info).await?;
 
     let mut i = 1;
     loop {
         // DEBUG:
-        break;
+        if i == 3 {
+            break;
+        }
 
         // click_entry returns Ok(true) if the i th entry is clicked
         if !click_entry(driver, i).await? {
@@ -121,17 +96,17 @@ pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Err
             i += 1;
         }
 
-        // WARNING: FOR DEBUG
-        // if i == 3 {
-        //     break;
-        // }
-
         super::short_pause();
 
         super::swith_to_tab(driver, 1).await?;
         super::wait_until_loaded(driver).await?;
 
-        scraped_data.push(scrape_bid_info(driver, &mut scrape_tracker, &mut log_info).await?);
+        log_info.url = driver.current_url().await?.to_string();
+        for i in scrape_bid_info(driver, &mut log_info).await? {
+            write_log(&i, &log_info);
+            scraped_data.push(i);
+            log_info.row += 1;
+        }
 
         super::medium_pause();
         driver.close_window().await?;
@@ -144,115 +119,83 @@ pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Err
     Ok(())
 }
 
+fn write_log(bid_info: &BidInfo, log_info: &ScrapeLogInfo) {
+    let msg = "is empty (in write_log function). Likely wrong scraping logic or corrupted site.";
+    if bid_info.project_id.is_empty() {
+        warn!(
+            "row: {}, url: {}    Project id {}", 
+            log_info.row, log_info.url, msg
+        );
+    }
+    if bid_info.project_name.is_empty() {
+        warn!(
+            "row: {}, url: {}    project_name {} ",
+            log_info.row, log_info.url, msg
+        );
+    }
+    if bid_info.recorded_date.is_empty() {
+        warn!(
+            "row: {}, url: {}    recorded date{} ",
+            log_info.row, log_info.url, msg
+        );
+    }
+    if bid_info.company_name.is_empty() {
+        warn!(
+            "row: {}, url: {}     company name{}",
+            log_info.row, log_info.url, msg
+        );
+    }
+    if bid_info.company_address.is_empty() {
+        warn!(
+            "row: {}, url: {}     company address {} ",
+            log_info.row, log_info.url, msg
+        );
+    }
+    if bid_info.price.is_empty() {
+        warn!(
+            "row: {}, url: {}     price {} ",
+            log_info.row, log_info.url, msg
+        );
+    }
+    if bid_info.buyer.is_empty() {
+        warn!(
+            "row: {}, url: {}     buyer {} ",
+            log_info.row, log_info.url, msg
+        );
+    }
+    if bid_info.publication_url.is_empty() {
+        warn!(
+            "row: {}, url: {}     publication url {} ",
+            log_info.row, log_info.url, msg
+        );
+    }
+}
+
 async fn scrape_bid_info(
     driver: &WebDriver,
-    scrape_tracker: &mut ScrapeTracker,
     log_info: &mut ScrapeLogInfo,
-) -> Result<BidInfo, WebDriverError> {
-    let mut table_contents: Vec<BidInfo> = vec![];
+) -> Result<Vec<BidInfo>, WebDriverError> {
+    let mut ret: Vec<BidInfo> = vec![];
     match find_table(driver).await? {
         Some(t) => {
-            table_contents.extend(handle_table(&t, log_info).await?);
+            ret.extend(handle_table(&t, log_info).await?);
         }
         // logging will take place when writing into csv
-        None => table_contents.push(BidInfo::default()),
+        None => ret.push(BidInfo::default()),
     }
 
-    return Ok(BidInfo::default());
+    let project_id = get_project_id(driver).await?;
+    let recorded_date = get_recorded_date(driver).await?;
+    let buyer = get_buyer(driver).await?;
+    let publication_url = get_publication_url(driver).await?;
 
-    let mut project_id: String;
-    if let Some(project_id) = get_project_id(driver).await? {
-        scrape_tracker.project_id = true;
-    } else {
-        scrape_tracker.project_id = false;
+    for i in ret.iter_mut() {
+        i.recorded_date = recorded_date.clone();
+        i.buyer = buyer.clone();
+        i.publication_url = publication_url.clone();
+        i.project_id = project_id.clone();
     }
 
-    let project_name = driver
-        .find(By::XPath(
-            "/html/body/div[6]/div[3]/div[4]/div[2]/ul[2]/li[2]",
-        ))
-        .await?
-        .text()
-        .await?
-        .trim()
-        .to_string();
-
-    // This field looks like
-    // 发布时间：2025-07-31     信息来源：上海市财政局云平台    浏览次数：130
-    // we only date the first 16 characters
-    let recorded_date = driver
-        .find(By::XPath("/html/body/div[6]/div[3]/p"))
-        .await?
-        .text()
-        .await?
-        .trim()
-        .to_string();
-
-    let characters: Vec<char> = recorded_date.chars().collect();
-    let mut recorded_date: String = characters[..16].iter().collect();
-
-    recorded_date = recorded_date.trim().to_string();
-    recorded_date.retain(|c| c.is_digit(10) || c == '-');
-
-    let mut price = driver
-        .find(By::XPath(
-            "/html/body/div[6]/div[3]/div[4]/div[2]/ul[7]/li[2]/div/div[1]/table/tbody/tr/td[3]",
-        ))
-        .await?
-        .text()
-        .await?;
-    price = price.trim().to_string();
-    price.retain(|c| c.is_digit(10) || c == '.');
-
-    let mut company_name = driver
-        .find(By::XPath(
-            "/html/body/div[6]/div[3]/div[4]/div[2]/ul[7]/li[2]/div/div[1]/table/tbody/tr/td[4]",
-        ))
-        .await?
-        .text()
-        .await?;
-    company_name = company_name.trim().to_string();
-
-    let company_address = driver
-        .find(By::XPath(
-            "/html/body/div[6]/div[3]/div[4]/div[2]/ul[7]/li[2]/div/div[1]/table/tbody/tr[1]/td[5]",
-        ))
-        .await?
-        .text()
-        .await?
-        .trim()
-        .to_string();
-
-    let buyer_element = driver
-        .find(By::XPath("//*[contains(text(),'采购人信息')]"))
-        .await?;
-    let buyer = buyer_element
-        .find(By::XPath("./following::*[1]"))
-        .await?
-        .text()
-        .await?
-        .replace("名 称：", "");
-
-    let mut publication_url = driver
-        .find(By::XPath("//*[contains(text(),'http:')]"))
-        .await?
-        .attr("href")
-        .await?
-        .unwrap_or_default();
-    publication_url = publication_url.trim().to_string();
-
-    let ret = BidInfo {
-        project_id,
-        project_name,
-        recorded_date,
-        price,
-        company_name,
-        company_address,
-        buyer,
-        publication_url,
-        ..Default::default() // default defined in main
-    };
-    println!("{:?}", ret);
     Ok(ret)
 }
 
@@ -268,7 +211,7 @@ async fn save_bid_info(scraped_data: &[BidInfo], save_to: &str) -> Result<(), Bo
 
     info!(
         "{}",
-        format!("Saved {} entries to {}", scraped_data.len(), save_to).green(),
+        format!("Saved {} entries to {}.json", scraped_data.len(), save_to).green(),
     );
 
     let mut wtr = Writer::from_path(&format!("{}.csv", save_to))?;
@@ -278,7 +221,7 @@ async fn save_bid_info(scraped_data: &[BidInfo], save_to: &str) -> Result<(), Bo
     }
     info!(
         "{}",
-        format!("Saved {} entries to {}", scraped_data.len(), save_to),
+        format!("Saved {} entries to {}.csv", scraped_data.len(), save_to),
     );
     Ok(())
 }
@@ -318,7 +261,7 @@ fn first_half_unicode(s: &str) -> String {
 
 // Returns Ok(None) is no project ID is found, this is likely due to uncorrect scraping logic
 // Return Err() if there is other program error
-async fn get_project_id(driver: &WebDriver) -> Result<Option<String>, WebDriverError> {
+async fn get_project_id(driver: &WebDriver) -> Result<String, WebDriverError> {
     let mut project_id: String;
     match driver
         .find(By::XPath("/html/body/div[6]/div[3]/div[1]/div[2]/h4"))
@@ -330,15 +273,59 @@ async fn get_project_id(driver: &WebDriver) -> Result<Option<String>, WebDriverE
             project_id.retain(|c| c.is_digit(10) || c == '-');
         }
         Err(_) => {
-            return Ok(None);
+            return Ok(String::new());
         }
     }
 
     if project_id.is_empty() {
-        return Ok(None);
+        return Ok(String::new());
     }
 
-    Ok(Some(project_id))
+    Ok(project_id)
+}
+
+async fn get_recorded_date(driver: &WebDriver) -> Result<String, WebDriverError> {
+    // This field looks like
+    // 发布时间：2025-07-31     信息来源：上海市财政局云平台    浏览次数：130
+    // we only date the first 16 characters
+    let recorded_date = driver
+        .find(By::XPath("/html/body/div[6]/div[3]/p"))
+        .await?
+        .text()
+        .await?
+        .trim()
+        .to_string();
+
+    let characters: Vec<char> = recorded_date.chars().collect();
+    let mut recorded_date: String = characters[..16].iter().collect();
+
+    recorded_date = recorded_date.trim().to_string();
+    recorded_date.retain(|c| c.is_digit(10) || c == '-');
+    Ok(recorded_date)
+}
+
+async fn get_buyer(driver: &WebDriver) -> Result<String, WebDriverError> {
+    let buyer_element = driver
+        .find(By::XPath("//*[contains(text(),'采购人信息')]"))
+        .await?;
+    let buyer = buyer_element
+        .find(By::XPath("./following::*[1]"))
+        .await?
+        .text()
+        .await?
+        .replace("名 称：", "");
+    Ok(buyer)
+}
+
+async fn get_publication_url(driver: &WebDriver) -> Result<String, WebDriverError> {
+    let mut publication_url = driver
+        .find(By::XPath("//*[contains(text(),'http:')]"))
+        .await?
+        .attr("href")
+        .await?
+        .unwrap_or_default();
+    publication_url = publication_url.trim().to_string();
+    Ok(publication_url)
 }
 
 async fn find_table(driver: &WebDriver) -> Result<Option<WebElement>, WebDriverError> {
@@ -355,9 +342,9 @@ async fn find_table(driver: &WebDriver) -> Result<Option<WebElement>, WebDriverE
     Ok(None)
 }
 
-// This function returns a vector of Bidinfo, each holding the info scraped 
+// This function returns a vector of Bidinfo, each holding the info scraped
 // from each row of the table found by find_table
-// Each entry of this vector will be added more information scraped from 
+// Each entry of this vector will be added more information scraped from
 // outside the table after this function returns to scrape_bid_info
 // If there is non-panicing error, and no information is scraped
 // return vector of length 0, or a vector of a single entry holding
@@ -366,8 +353,7 @@ async fn handle_table(
     table: &WebElement,
     log_info: &mut ScrapeLogInfo,
 ) -> Result<Vec<BidInfo>, WebDriverError> {
-
-    // tbody_entries are the rows, the first row may be the table head 
+    // tbody_entries are the rows, the first row may be the table head
     let mut tbody_entries: Vec<WebElement> = vec![];
     match table.find(By::Tag("tbody")).await {
         Ok(b) => {
@@ -405,34 +391,63 @@ async fn handle_table(
             head_entries = strings;
         }
     }
-    warn!("{:?}", head_entries);
 
     if tbody_entries.len() == 0 {
         warn!("url: {}. <tbody> has no entry (in handle_table function). Likely wrong scraping logic or corrupted site. Scraping continue",log_info.url);
     }
 
+    // this the table stored vec
+    // formated_table[0][1] is the 0' row, 1st col
+    let mut formatted_table: Vec<Vec<String>> = vec![];
+    for r in tbody_entries.iter() {
+        let cols_entry: Vec<String> = r.text().await?.split(" ").map(|s| s.to_string()).collect();
 
-    for r in tbody_entries.iter(){
-        debug!("{}", r.text().await?.red());
+        formatted_table.push(cols_entry);
     }
-
-    // DEBUG:
-    panic!("{}", "expected panic!".red());
-
-
 
     // The table head usually is like
     // 序号 标项名称 中标供应商名称
     // 中标供应商地址 评审报价 评审总得分 中标（成交金额） 备注
     // but the order may change, and the name may change
     // we need to find the index for each required entry
-    let mut project_id_idx = 0;
-    let mut project_name_idx = 0;
-    let mut company_name_idx = 0;
-    let mut company_addr_idx = 0;
-    let mut price_idx = 0;
+    let mut project_name_idx: Option<usize> = None;
+    let mut company_name_idx: Option<usize> = None;
+    let mut company_addr_idx: Option<usize> = None;
+    let mut price_idx: Option<usize> = None;
 
-    Ok(Vec::new())
+    for (i, s) in head_entries.iter().enumerate() {
+        if s.contains("金额") && price_idx.is_none() {
+            price_idx = Some(i);
+        } else if s.contains("标项") && project_name_idx.is_none() {
+            project_name_idx = Some(i)
+        } else if s.contains("地址") && company_addr_idx.is_none() {
+            company_addr_idx = Some(i);
+        } else if s.contains("供应商") && s.contains("名称") && company_name_idx.is_none() {
+            company_name_idx = Some(i);
+        }
+    }
+
+    let mut ret: Vec<BidInfo> = Vec::new();
+    for i in formatted_table.iter() {
+        let mut tmp = BidInfo {
+            ..Default::default()
+        };
+        if let Some(idx) = project_name_idx {
+            tmp.project_name = i[idx].trim().to_string();
+        }
+        if let Some(idx) = company_name_idx {
+            tmp.company_name = i[idx].trim().to_string();
+        }
+        if let Some(idx) = company_addr_idx {
+            tmp.company_address = i[idx].trim().to_string();
+        }
+        if let Some(idx) = price_idx {
+            tmp.price = i[idx].trim().to_string();
+        }
+        ret.push(tmp);
+    }
+
+    Ok(ret)
 }
 
 // for serializing to csv
