@@ -7,7 +7,7 @@
 use colored::Colorize;
 use csv::Writer;
 use log::*;
-use std::error::Error;
+use std::error::{self, Error};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use thirtyfour::{
@@ -24,7 +24,7 @@ pub struct BidInfo {
     // 项目编号
     pub project_id: String,
 
-    // 标项名称 or 
+    // 标项名称 or
     pub project_name: String,
 
     // 存证日期
@@ -72,6 +72,7 @@ struct ScrapeTracker {
 }
 
 /// Holding errors info that shall be logged
+/// all logging shall take place when the entries is recorded to csv
 #[derive(Debug)]
 pub struct ScrapeLogInfo {
     /// the row number in the data output csv file.
@@ -85,7 +86,7 @@ pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Err
     let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-31&timeEnd=2025-8-6%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
     // let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-30&timeEnd=2025-7-30%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
 
-    let url = "http://localhost:3000";
+    let url = "http://localhost:3001";
 
     let url_tmp = Url::parse(url)?;
     driver.goto(url_tmp).await?;
@@ -107,8 +108,10 @@ pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Err
         // DEBUG:
         break;
 
+        // click_entry returns Ok(true) if the i th entry is clicked
         if !click_entry(driver, i).await? {
             i = 1;
+            overcome_challenge(driver).await?;
             if !click_next_page(driver).await? {
                 println!("No more pages to scrape; exiting...");
                 break;
@@ -146,8 +149,14 @@ async fn scrape_bid_info(
     scrape_tracker: &mut ScrapeTracker,
     log_info: &mut ScrapeLogInfo,
 ) -> Result<BidInfo, WebDriverError> {
-    let mut table = driver.query(By::Tag("tbody")).first().await?;
-    println!("Table found: {:?}", table);
+    let mut table_contents: Vec<BidInfo> = vec![];
+    match find_table(driver).await? {
+        Some(t) => {
+            table_contents.extend(handle_table(&t, log_info).await?);
+        }
+        // logging will take place when writing into csv
+        None => table_contents.push(BidInfo::default()),
+    }
 
     return Ok(BidInfo::default());
 
@@ -253,7 +262,7 @@ async fn save_bid_info(scraped_data: &[BidInfo], save_to: &str) -> Result<(), Bo
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
-        .open(&format!("{},json", save_to))?;
+        .open(&format!("{}.json", save_to))?;
     let json_data = serde_json::to_string_pretty(&scraped_data)?;
     write!(file, "{}", json_data)?;
 
@@ -332,6 +341,100 @@ async fn get_project_id(driver: &WebDriver) -> Result<Option<String>, WebDriverE
     Ok(Some(project_id))
 }
 
+async fn find_table(driver: &WebDriver) -> Result<Option<WebElement>, WebDriverError> {
+    let tables = driver.find_all(By::Tag("table")).await?;
+
+    println!("found {} tables", tables.len());
+    for (i, t) in tables.iter().enumerate() {
+        let text = t.text().await?;
+        if text.contains("元") {
+            return Ok(Some(t.clone()));
+        }
+    }
+
+    Ok(None)
+}
+
+// This function returns a vector of Bidinfo, each holding the info scraped 
+// from each row of the table found by find_table
+// Each entry of this vector will be added more information scraped from 
+// outside the table after this function returns to scrape_bid_info
+// If there is non-panicing error, and no information is scraped
+// return vector of length 0, or a vector of a single entry holding
+// default value of Bidinfo (which is all empty string)
+async fn handle_table(
+    table: &WebElement,
+    log_info: &mut ScrapeLogInfo,
+) -> Result<Vec<BidInfo>, WebDriverError> {
+
+    // tbody_entries are the rows, the first row may be the table head 
+    let mut tbody_entries: Vec<WebElement> = vec![];
+    match table.find(By::Tag("tbody")).await {
+        Ok(b) => {
+            tbody_entries = b.find_all(By::XPath("./*")).await?;
+        }
+        Err(_) => {
+            warn!("url: {}. no <tbody> found (in handle_table function). Likely wrong scraping logic or corrupted site. Scraping continue",log_info.url);
+            return Ok(Vec::new());
+        }
+    }
+
+    if tbody_entries.len() == 0 {
+        warn!("url: {}. <tbody> has no entry (in handle_table function). Likely wrong scraping logic or corrupted site. Scraping continue",log_info.url);
+        return Ok(vec![BidInfo::default()]);
+    }
+
+    // the table may have thead tag, or the head info is contained in
+    // the first row of tbody (thead: table head, tbody: table body)
+    let mut head_entries: Vec<String> = vec![];
+    match table.find(By::Tag("thead")).await {
+        Ok(t) => {
+            let strings = t.text().await?;
+            let strings: Vec<String> = strings.split(" ").map(|s| s.to_string()).collect();
+            head_entries = strings;
+        }
+        Err(_) => {
+            // since there is no thead, assume the first row of tbody is table head
+            // if the table contains 0 or 1 lines, there is error
+            let strings = tbody_entries[0].text().await?;
+
+            // Now tbody contains only body, no head
+            tbody_entries.remove(0);
+
+            let strings: Vec<String> = strings.split(" ").map(|s| s.to_string()).collect();
+            head_entries = strings;
+        }
+    }
+    warn!("{:?}", head_entries);
+
+    if tbody_entries.len() == 0 {
+        warn!("url: {}. <tbody> has no entry (in handle_table function). Likely wrong scraping logic or corrupted site. Scraping continue",log_info.url);
+    }
+
+
+    for r in tbody_entries.iter(){
+        debug!("{}", r.text().await?.red());
+    }
+
+    // DEBUG:
+    panic!("{}", "expected panic!".red());
+
+
+
+    // The table head usually is like
+    // 序号 标项名称 中标供应商名称
+    // 中标供应商地址 评审报价 评审总得分 中标（成交金额） 备注
+    // but the order may change, and the name may change
+    // we need to find the index for each required entry
+    let mut project_id_idx = 0;
+    let mut project_name_idx = 0;
+    let mut company_name_idx = 0;
+    let mut company_addr_idx = 0;
+    let mut price_idx = 0;
+
+    Ok(Vec::new())
+}
+
 // for serializing to csv
 
 // return true if clicked, false if not
@@ -348,7 +451,32 @@ async fn click_entry(driver: &WebDriver, number: usize) -> Result<bool, Box<dyn 
         println!("click_entry: nothing to click; continuing...");
         return Ok(false);
     }
-    return Ok(true);
+    Ok(true)
+}
+
+// sometime there is a robot challenge after clicking next page
+// in such case, the driver is pasued, and require user intervention
+// the user shall solve the challenge, and the scraping program will continue
+// to work
+async fn overcome_challenge(driver: &WebDriver) -> Result<(), Box<dyn Error>> {
+    loop {
+        debug!("{}", "Waiting for the page to load...");
+        match driver
+            // this is project id
+            .find(By::XPath("/html/body/div[6]/div[3]/div[1]/div[2]/h4"))
+            .await
+        {
+            Ok(_) => {
+                debug!("{}", "Page loaded successfully");
+                break;
+            }
+            Err(_) => {
+                debug!("Page not loaded yet, retrying...");
+            }
+        }
+        super::long_pause();
+    }
+    Ok(())
 }
 
 /// this site does not seem to have a popup menu
