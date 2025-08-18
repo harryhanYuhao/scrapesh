@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     scrape::short_pause();
     scrape::shggzy::scrape(&driver, "shggzy").await?;
-    info!("aaa");
+    info!("Scraping Finished Successfully!");
 
     driver.quit().await?;
     Ok(())
