@@ -60,8 +60,8 @@ pub struct ScrapeLogInfo {
 pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Error>> {
     info!("{}, saving to {save_to}", "Scraping shggzy".yellow().bold(),);
 
-    let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-31&timeEnd=2025-8-6%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
-    // let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-30&timeEnd=2025-7-30%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
+    let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-31&timeEnd=2025-8-1%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
+    let url = "https://www.shggzy.com/search/queryContents_5.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-31&timeEnd=2025-8-1%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
 
     // let url = "http://localhost:3000";
 
@@ -76,21 +76,20 @@ pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Err
         url: url.into(),
     };
 
+    // DEBUG:
+    // debug!("{:?}", scrape_bid_info(driver, &mut log_info).await?);
+    // panic!("{}", "Expected Panic!".red());
+
     let mut i = 1;
     loop {
-        // DEBUG:
-        if i == 3 {
-            break;
-        }
-
         // click_entry returns Ok(true) if the i th entry is clicked
         if !click_entry(driver, i).await? {
             i = 1;
-            overcome_challenge(driver).await?;
             if !click_next_page(driver).await? {
                 println!("No more pages to scrape; exiting...");
                 break;
             }
+            overcome_challenge(driver).await?;
             continue;
         } else {
             i += 1;
@@ -123,7 +122,7 @@ fn write_log(bid_info: &BidInfo, log_info: &ScrapeLogInfo) {
     let msg = "is empty (in write_log function). Likely wrong scraping logic or corrupted site.";
     if bid_info.project_id.is_empty() {
         warn!(
-            "row: {}, url: {}    Project id {}", 
+            "row: {}, url: {}    Project id {}",
             log_info.row, log_info.url, msg
         );
     }
@@ -229,14 +228,13 @@ async fn save_bid_info(scraped_data: &[BidInfo], save_to: &str) -> Result<(), Bo
 // todo: search by 下一页
 async fn click_next_page(driver: &WebDriver) -> Result<bool, Box<dyn Error>> {
     if let Ok(next_page) = driver
-        .find(By::XPath(
-            "/html/body/div[5]/div/div/div/div[2]/div[3]/div[1]/div/div/div/a[7]",
-        ))
+        .find(By::XPath("//*[contains(text(),'下一页')]"))
         .await
     {
         next_page.wait_until().displayed().await?;
         // if the button is clickable, the attribute is layui-laypage-next
         // if not, it is layui-laypage-next layui-disabled
+        // TODO: find a better way to check if the button is clickable
         let class_attribute = next_page.attr("class").await?;
         let attribute = class_attribute
             .as_deref()
@@ -248,6 +246,7 @@ async fn click_next_page(driver: &WebDriver) -> Result<bool, Box<dyn Error>> {
         }
 
         next_page.click().await?;
+        debug!("Clicked next page button");
         return Ok(true);
     }
     println!("No next page button found");
@@ -308,22 +307,22 @@ async fn get_buyer(driver: &WebDriver) -> Result<String, WebDriverError> {
     let buyer_element = driver
         .find(By::XPath("//*[contains(text(),'采购人信息')]"))
         .await?;
-    let buyer = buyer_element
-        .find(By::XPath("./following::*[1]"))
+    let mut buyer = buyer_element
+        .find(By::XPath("./following::p[1]"))
         .await?
         .text()
-        .await?
-        .replace("名 称：", "");
+        .await?;
+    buyer = buyer.replace("名 称：", "");
     Ok(buyer)
 }
 
 async fn get_publication_url(driver: &WebDriver) -> Result<String, WebDriverError> {
     let mut publication_url = driver
-        .find(By::XPath("//*[contains(text(),'http:')]"))
+        .find(By::XPath("//a[contains(text(),'http://')]"))
         .await?
-        .attr("href")
-        .await?
-        .unwrap_or_default();
+        .text()
+        .await?;
+
     publication_url = publication_url.trim().to_string();
     Ok(publication_url)
 }
@@ -463,7 +462,7 @@ async fn click_entry(driver: &WebDriver, number: usize) -> Result<bool, Box<dyn 
         result_entry.wait_until().clickable().await?;
         result_entry.click().await?;
     } else {
-        println!("click_entry: nothing to click; continuing...");
+        debug!("click_entry: nothing to click; continuing...");
         return Ok(false);
     }
     Ok(true)
@@ -477,8 +476,8 @@ async fn overcome_challenge(driver: &WebDriver) -> Result<(), Box<dyn Error>> {
     loop {
         debug!("{}", "Waiting for the page to load...");
         match driver
-            // this is project id
-            .find(By::XPath("/html/body/div[6]/div[3]/div[1]/div[2]/h4"))
+            // this is the 下一页 button
+            .find(By::XPath("//*[contains(text(),'下一页')]"))
             .await
         {
             Ok(_) => {
