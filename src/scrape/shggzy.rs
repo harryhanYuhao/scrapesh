@@ -21,7 +21,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
 
 // total 8 fields
-#[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Default, Eq, PartialEq, Hash)]
 pub struct BidInfo {
     // 项目编号
     pub project_id: String,
@@ -91,16 +91,19 @@ pub async fn scrape_date(driver: &WebDriver, date: NaiveDate) -> Result<(), Box<
         date.format("%Y-%m-%d"),
     );
 
-
-    info!("{}, saving to {save_to}", "Scraping shggzy".yellow().bold(),);
+    info!("{}, saving to {save_to}", "Scraping shggzy");
+    println!("{}, saving to {save_to}", "Scraping shggzy".yellow().bold(),);
 
     // FOR DEBUG:
     // let url = "http://localhost:3000";
-    let url = "https://www.shggzy.com/jyxxzcgs/8466348?cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8&isIndex=";
+    // let url = "https://www.shggzy.com/jyxxzcgs/8466348?cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8&isIndex=";
+    // END DEBUG
 
     let url_tmp = Url::parse(url)?;
     driver.goto(url_tmp).await?;
     println!("{} at {}", "Scraping shggzy job".yellow().bold(), url);
+    info!("{} at {}", "Scraping shggzy job", url);
+
     super::short_pause();
 
     let mut scraped_data: Vec<BidInfo> = Vec::new();
@@ -110,14 +113,14 @@ pub async fn scrape_date(driver: &WebDriver, date: NaiveDate) -> Result<(), Box<
     };
 
     // DEBUG:
-    for i in scrape_bid_info(driver, &mut log_info).await? {
-        write_log(&i, &log_info);
-    }
-    debug!("{:?}", scrape_bid_info(driver, &mut log_info).await?);
-    panic!("{}", "Expected Panic!".red());
+    // for i in scrape_bid_info(driver, &mut log_info).await? {
+    //     write_log(&i, &log_info);
+    // }
+    // debug!("{:?}", scrape_bid_info(driver, &mut log_info).await?);
+    // panic!("{}", "Expected Panic!".red());
     // END DEBUG
 
-
+    let mut page = 1;
     let mut i = 1;
     loop {
         // click_entry returns Ok(true) if the i th entry is clicked
@@ -128,6 +131,8 @@ pub async fn scrape_date(driver: &WebDriver, date: NaiveDate) -> Result<(), Box<
                 break;
             }
             overcome_challenge(driver).await?;
+            page += 1;
+            debug!("Move to page {}", page);
             continue;
         } else {
             i += 1;
@@ -139,11 +144,17 @@ pub async fn scrape_date(driver: &WebDriver, date: NaiveDate) -> Result<(), Box<
         super::wait_until_loaded(driver).await?;
 
         log_info.url = driver.current_url().await?.to_string();
-        for i in scrape_bid_info(driver, &mut log_info).await? {
+
+        let scrape_bid_info_ret = scrape_bid_info(driver, &mut log_info).await?;
+        for i in scrape_bid_info_ret {
             write_log(&i, &log_info);
             scraped_data.push(i);
             log_info.row += 1;
         }
+        debug!(
+            "{}",
+            format!("Scraped {} entries from {} on page {}", scraped_data.len(), log_info.url, page)
+        );
 
         super::medium_pause();
         driver.close_window().await?;
@@ -151,7 +162,13 @@ pub async fn scrape_date(driver: &WebDriver, date: NaiveDate) -> Result<(), Box<
         super::short_pause();
     }
 
-    save_bid_info(&scraped_data, save_to).await?;
+    let unique_scraped_data: Vec<BidInfo> = scraped_data
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    save_bid_info(&unique_scraped_data, save_to).await?;
 
     Ok(())
 }
@@ -354,9 +371,7 @@ async fn get_buyer(driver: &WebDriver) -> Result<String, WebDriverError> {
             .text()
             .await?;
 
-        buyer_element = buyer_element
-            .find(By::XPath("./following::*[1]"))
-            .await?;
+        buyer_element = buyer_element.find(By::XPath("./following::*[1]")).await?;
     }
 
     buyer = buyer.replace("名称", "");
@@ -380,8 +395,6 @@ async fn get_publication_url(driver: &WebDriver) -> Result<String, WebDriverErro
 async fn find_table(driver: &WebDriver) -> Result<Option<WebElement>, WebDriverError> {
     let tables = driver.find_all(By::Tag("table")).await?;
 
-
-
     for (i, t) in tables.iter().enumerate() {
         let text = t.text().await?;
         if text.contains("地址") || text.contains("元") {
@@ -404,7 +417,7 @@ async fn handle_table(
     log_info: &mut ScrapeLogInfo,
 ) -> Result<Vec<BidInfo>, WebDriverError> {
     // tbody_entries are the rows, the first row may be the table head
-    let mut tbody_entries: Vec<WebElement> = vec![];
+    let mut tbody_entries: Vec<WebElement>;
     match table.find(By::Tag("tbody")).await {
         Ok(b) => {
             tbody_entries = b.find_all(By::XPath("./*")).await?;
@@ -422,7 +435,7 @@ async fn handle_table(
 
     // the table may have thead tag, or the head info is contained in
     // the first row of tbody (thead: table head, tbody: table body)
-    let mut head_entries: Vec<String> = vec![];
+    let head_entries: Vec<String>;
     match table.find(By::Tag("thead")).await {
         Ok(t) => {
             let strings = t.text().await?;
@@ -436,7 +449,6 @@ async fn handle_table(
 
             // Now tbody contains only body, no head
             tbody_entries.remove(0);
-
             let strings: Vec<String> = strings.split(" ").map(|s| s.to_string()).collect();
             head_entries = strings;
         }
@@ -453,6 +465,18 @@ async fn handle_table(
     let mut formatted_table: Vec<Vec<String>> = vec![];
     for r in tbody_entries.iter() {
         let cols_entry: Vec<String> = r.text().await?.split(" ").map(|s| s.to_string()).collect();
+
+        // 序号 could be empty string,
+        if cols_entry.len() != head_entries.len() {
+            warn!("<tbody> has less {} columns while <thead> has {}(in handle_table function). May cause wrong scraped result url: {}", cols_entry.len(), head_entries.len(), log_info.url);
+            // fill the missing columns with empty string
+            let mut cols_entry_filled = cols_entry.clone();
+            for _ in cols_entry_filled.len()..head_entries.len() {
+                cols_entry_filled.insert(0, String::new());
+            }
+            formatted_table.push(cols_entry_filled);
+            continue;
+        }
 
         formatted_table.push(cols_entry);
     }

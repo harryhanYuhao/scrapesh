@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let driver = web_driver::init_driver(web_driver::DriverType::Default).await?;
 
     scrape::short_pause();
-    scrape::shggzy::scrape_from_to(&driver, "2025-8-11", "2025-8-17").await?;
+    scrape::shggzy::scrape_from_to(&driver, "2025-8-13", "2025-8-17").await?;
     info!("Scraping Finished Successfully!");
 
     driver.quit().await?;
