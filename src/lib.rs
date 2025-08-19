@@ -62,14 +62,19 @@ pub fn init() -> Result<(), Box<dyn Error>> {
 
     // Initialise logging with simplelog
 
+    // create data directory 
+    fs::create_dir_all("data")?;
+
+    // logging initialise
     let log_dir = String::from("log");
     fs::create_dir_all(&log_dir)?;
     let mut log_file_name: String =
-        chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string() + ".txt";
+        chrono::Local::now().format("%Y-%m-%d_%H:%M:%S_scraped_at").to_string() + ".txt";
 
+    // if the file exists, wait a second to avoid overwriting
     if fs::metadata(&log_file_name).is_ok() {
         thread::sleep(Duration::from_millis(1020));
-        log_file_name = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string() + ".txt";
+        log_file_name = chrono::Local::now().format("%Y-%m-%d_%H:%M:%S_scraped_at").to_string() + ".txt";
     }
 
     CombinedLogger::init(vec![

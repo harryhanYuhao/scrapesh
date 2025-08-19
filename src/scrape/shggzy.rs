@@ -16,6 +16,7 @@ use thirtyfour::{
 };
 
 // TODO: remove this dependency, use char
+use chrono::NaiveDate;
 use unicode_segmentation::UnicodeSegmentation;
 use url::Url;
 
@@ -57,12 +58,42 @@ pub struct ScrapeLogInfo {
     pub url: String,
 }
 
-pub async fn scrape(driver: &WebDriver, save_to: &str) -> Result<(), Box<dyn Error>> {
+// from and to are dates in the format "YYYY-MM-DD"
+pub async fn scrape_from_to(
+    driver: &WebDriver,
+    from: &str,
+    to: &str,
+) -> Result<(), Box<dyn Error>> {
+    let from_date = NaiveDate::parse_from_str(from, "%Y-%m-%d")?;
+    let to_date = NaiveDate::parse_from_str(to, "%Y-%m-%d")?;
+
+    if from_date > to_date {
+        panic!("From date is later than to date. Internal Bug");
+    }
+
+    // iterate from from_date to to_date
+    let mut current_date = from_date;
+
+    while current_date <= to_date {
+        scrape_date(driver, current_date).await?;
+        current_date = current_date.succ_opt().unwrap();
+    }
+
+    Ok(())
+}
+
+pub async fn scrape_date(driver: &WebDriver, date: NaiveDate) -> Result<(), Box<dyn Error>> {
+    // data directory is created in crate::init() defined in lib.rs
+    let save_to = &format!("data/{}_shggzy", date.format("%Y-%m-%d"));
+
+    let url = &format!("https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin={}&timeEnd={}%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8", 
+        date.format("%Y-%m-%d"),
+        date.format("%Y-%m-%d"),
+    );
+
     info!("{}, saving to {save_to}", "Scraping shggzy".yellow().bold(),);
 
-    let url = "https://www.shggzy.com/search/queryContents_1.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-31&timeEnd=2025-8-1%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
-    let url = "https://www.shggzy.com/search/queryContents_5.jhtml?title=&channelId=38&origin=&inDates=1&ext=&timeBegin=2025-07-31&timeEnd=2025-8-1%2B23%3A59%3A59&ext1=&ext2=&cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8";
-
+    // FOR DEBUG:
     // let url = "http://localhost:3000";
 
     let url_tmp = Url::parse(url)?;
@@ -122,50 +153,50 @@ fn write_log(bid_info: &BidInfo, log_info: &ScrapeLogInfo) {
     let msg = "is empty (in write_log function). Likely wrong scraping logic or corrupted site.";
     if bid_info.project_id.is_empty() {
         warn!(
-            "row: {}, url: {}    Project id {}",
-            log_info.row, log_info.url, msg
+            "Project id {}      row: {}, url: {}",
+            msg, log_info.row, log_info.url
         );
     }
     if bid_info.project_name.is_empty() {
         warn!(
-            "row: {}, url: {}    project_name {} ",
-            log_info.row, log_info.url, msg
+            "project_name {}       row: {}, url: {}",
+            msg, log_info.row, log_info.url
         );
     }
     if bid_info.recorded_date.is_empty() {
         warn!(
-            "row: {}, url: {}    recorded date{} ",
-            log_info.row, log_info.url, msg
+            "recorded date {}     row: {}, url: {}",
+            msg, log_info.row, log_info.url
         );
     }
     if bid_info.company_name.is_empty() {
         warn!(
-            "row: {}, url: {}     company name{}",
-            log_info.row, log_info.url, msg
+            "company name {}    row: {}, url: {}",
+            msg, log_info.row, log_info.url
         );
     }
     if bid_info.company_address.is_empty() {
         warn!(
-            "row: {}, url: {}     company address {} ",
-            log_info.row, log_info.url, msg
+            "company address {}     row: {}, url: {}",
+            msg, log_info.row, log_info.url
         );
     }
     if bid_info.price.is_empty() {
         warn!(
-            "row: {}, url: {}     price {} ",
-            log_info.row, log_info.url, msg
+            "price {}     row: {}, url: {}",
+            msg, log_info.row, log_info.url
         );
     }
     if bid_info.buyer.is_empty() {
         warn!(
-            "row: {}, url: {}     buyer {} ",
-            log_info.row, log_info.url, msg
+            "buyer {}     row: {}, url: {}",
+            msg, log_info.row, log_info.url
         );
     }
     if bid_info.publication_url.is_empty() {
         warn!(
-            "row: {}, url: {}     publication url {} ",
-            log_info.row, log_info.url, msg
+            "publication url {}     row: {}, url: {}",
+            msg, log_info.row, log_info.url
         );
     }
 }
@@ -312,7 +343,7 @@ async fn get_buyer(driver: &WebDriver) -> Result<String, WebDriverError> {
         .await?
         .text()
         .await?;
-    buyer = buyer.replace("名 称：", "");
+    buyer = buyer.replace("名称：", "");
     Ok(buyer)
 }
 
@@ -330,7 +361,6 @@ async fn get_publication_url(driver: &WebDriver) -> Result<String, WebDriverErro
 async fn find_table(driver: &WebDriver) -> Result<Option<WebElement>, WebDriverError> {
     let tables = driver.find_all(By::Tag("table")).await?;
 
-    println!("found {} tables", tables.len());
     for (i, t) in tables.iter().enumerate() {
         let text = t.text().await?;
         if text.contains("元") {
@@ -394,6 +424,8 @@ async fn handle_table(
     if tbody_entries.len() == 0 {
         warn!("url: {}. <tbody> has no entry (in handle_table function). Likely wrong scraping logic or corrupted site. Scraping continue",log_info.url);
     }
+
+    // upon this point, we have found the table body and head
 
     // this the table stored vec
     // formated_table[0][1] is the 0' row, 1st col
@@ -472,11 +504,13 @@ async fn click_entry(driver: &WebDriver, number: usize) -> Result<bool, Box<dyn 
 // in such case, the driver is pasued, and require user intervention
 // the user shall solve the challenge, and the scraping program will continue
 // to work
+// The challenge is a drag and fill in the shape puzzle
 async fn overcome_challenge(driver: &WebDriver) -> Result<(), Box<dyn Error>> {
     loop {
         debug!("{}", "Waiting for the page to load...");
         match driver
             // this is the 下一页 button
+            // If the buttons shows, the page is loaded
             .find(By::XPath("//*[contains(text(),'下一页')]"))
             .await
         {
@@ -491,24 +525,4 @@ async fn overcome_challenge(driver: &WebDriver) -> Result<(), Box<dyn Error>> {
         super::long_pause();
     }
     Ok(())
-}
-
-/// this site does not seem to have a popup menu
-// async fn click_popup(driver: &WebDriver) -> Result<(), Box<dyn Error>> {
-//     if let Ok(popup_menu_ok_button) = driver
-//         .find(By::XPath("/html/body/dialog[1]/div[2]/button[2]"))
-//         .await
-//     {
-//         popup_menu_ok_button.wait_until().clickable().await?;
-//         popup_menu_ok_button.click().await?;
-//         return Ok(());
-//     }
-//     println!("No popup menu found; continuing...");
-//     return Ok(());
-// }
-
-async fn get_all_entry(driver: &WebDriver) -> Result<Vec<WebElement>, WebDriverError> {
-    driver
-        .find_all(By::XPath("/html/body/div/div[2]/div[2]/div"))
-        .await
 }

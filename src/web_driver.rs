@@ -57,7 +57,7 @@ pub async fn init_driver(
     let mut has_run = HAS_RUN.lock().unwrap();
     {
         if *has_run.as_ref().unwrap() {
-            panic!("initialize_driver() Already Run! This function shall only be called once. This is likely internal bug.");
+            panic!("initialize_driver() Already Run! This function shall only be called once. This is likely an internal bug.");
         }
     }
     *has_run = Some(true);
@@ -79,13 +79,16 @@ pub async fn init_driver(
         .await
         .unwrap_or_else(|_| {
             panic!(
-                "{}",
+                "{}; this is likely an internal bug.",
                 "Failed To Connects to Chrome Driver at port 9515"
                     .bold()
                     .red()
             )
         });
     // WARNING: does not seem to work in hyprland
+    // In other desktop environmnent, ideally we shall maximize window
+    // shggzy website seem to have little flex change when the window sizes changed,
+    // so do not maximize does not cauese problems
     // driver.maximize_window().await?;
     Ok(driver)
 }
