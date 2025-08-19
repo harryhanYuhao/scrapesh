@@ -91,10 +91,12 @@ pub async fn scrape_date(driver: &WebDriver, date: NaiveDate) -> Result<(), Box<
         date.format("%Y-%m-%d"),
     );
 
+
     info!("{}, saving to {save_to}", "Scraping shggzy".yellow().bold(),);
 
     // FOR DEBUG:
     // let url = "http://localhost:3000";
+    let url = "https://www.shggzy.com/jyxxzcgs/8466348?cExt=eyJhbGciOiJIUzI1NiJ9.eyJwYXRoIjoiL2p5eHh6YyIsInBhZ2VObyI6MSwiZXhwIjoxNzU2MTk3MTg4MDg3fQ.RpAdtIlYn7wkJDpA0rths1P5jlA0fbiaaWUJ6Kt8uz8&isIndex=";
 
     let url_tmp = Url::parse(url)?;
     driver.goto(url_tmp).await?;
@@ -108,8 +110,13 @@ pub async fn scrape_date(driver: &WebDriver, date: NaiveDate) -> Result<(), Box<
     };
 
     // DEBUG:
-    // debug!("{:?}", scrape_bid_info(driver, &mut log_info).await?);
-    // panic!("{}", "Expected Panic!".red());
+    for i in scrape_bid_info(driver, &mut log_info).await? {
+        write_log(&i, &log_info);
+    }
+    debug!("{:?}", scrape_bid_info(driver, &mut log_info).await?);
+    panic!("{}", "Expected Panic!".red());
+    // END DEBUG
+
 
     let mut i = 1;
     loop {
@@ -335,15 +342,27 @@ async fn get_recorded_date(driver: &WebDriver) -> Result<String, WebDriverError>
 }
 
 async fn get_buyer(driver: &WebDriver) -> Result<String, WebDriverError> {
-    let buyer_element = driver
+    let mut buyer_element = driver
         .find(By::XPath("//*[contains(text(),'采购人信息')]"))
         .await?;
-    let mut buyer = buyer_element
-        .find(By::XPath("./following::p[1]"))
-        .await?
-        .text()
-        .await?;
-    buyer = buyer.replace("名称：", "");
+    let mut buyer = String::new();
+    // "名称：" has length 9
+    while buyer.len() <= 9 {
+        buyer = buyer_element
+            .find(By::XPath("./following::*[1]"))
+            .await?
+            .text()
+            .await?;
+
+        buyer_element = buyer_element
+            .find(By::XPath("./following::*[1]"))
+            .await?;
+    }
+
+    buyer = buyer.replace("名称", "");
+    buyer = buyer.replace("招标人", "");
+    buyer = buyer.replace("：", "");
+    buyer = buyer.trim().to_string();
     Ok(buyer)
 }
 
@@ -361,9 +380,11 @@ async fn get_publication_url(driver: &WebDriver) -> Result<String, WebDriverErro
 async fn find_table(driver: &WebDriver) -> Result<Option<WebElement>, WebDriverError> {
     let tables = driver.find_all(By::Tag("table")).await?;
 
+
+
     for (i, t) in tables.iter().enumerate() {
         let text = t.text().await?;
-        if text.contains("元") {
+        if text.contains("地址") || text.contains("元") {
             return Ok(Some(t.clone()));
         }
     }
